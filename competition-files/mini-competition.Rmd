@@ -6,3 +6,91 @@ output: github_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+```{r}
+#load libraries
+library(ggplot2)
+library(tidymodels)
+library(dplyr)
+```
+
+##Load Data
+```{r load_data}
+inventory_df = read.csv("data/inventory.csv")
+inventory_df
+```
+
+##Exploratory Data Analysis
+
+```{r explore_data}
+#get the statistical summaries
+summary(inventory_df)
+
+```
+Findings from summary:
+The average numbero of items sold was 50.62 while the maximum number is 7200.0. The huge difference between avaerage and maximum suggested that we cannot use the data as is in predicting, the accruracy of items predicted items sold can be very low. 
+
+```{r check_dist}
+# Assuming your dataframe is named "df"
+ggplot(inventory_df, aes(x = week, y = sold)) +
+  geom_density_2d() +
+  labs(x = "Week", y = "Sold") +
+  ggtitle("Distribution of Sold Items by Week")
+
+```
+```{r}
+#I used Anderson-Darling test to check for normality
+library(nortest)
+ad.test(inventory_df$sold)
+
+```
+Hypothesis: The null hypothesis here was that the distribution of the items sold is not normaly distributed. 
+The p-value for items was significantly lower than 0.05, thus the null hypothesis was rejected. 
+
+However, to improve predictions, the next step is to ensure that the range, mean and maximum values have no significant differences. Hence, columns with minimum sales are removed from the model. 
+
+```{r}
+# Assuming your dataframe is named "df"
+inventory_df <- subset(inventory_df, sold != 0)
+summary(inventory_df$sold)
+```
+##Building the model
+
+```{r build_model}
+#Prepare your data
+set.seed(4300) 
+
+# Get training and test sets
+split <- initial_split(inventory_df, prop = 0.8)  # 70% for training, 30% for testing
+training_data <- training(split)
+testing_data <- testing(split)
+
+# Define your outcome variable (sales) and predictor variables
+outcome <- "sold" 
+predictors <- setdiff(names(inventory_df), outcome)
+
+# Data preprocessing
+formula <- as.formula(paste(outcome, "~ ."))
+recipe_obj <- recipe(formula, data = training_data) %>%
+  update_role(all_predictors(), new_role = "predictor") %>%
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE)
+
+preprocessed_data <- prep(recipe_obj, training_data) %>% bake(new_data = training_data)
+
+# Model training
+model <- glm(formula, data = preprocessed_data, family = poisson())
+
+# Preprocess the testing data
+preprocessed_test <- prep(recipe_obj, testing_data) %>% bake(new_data = testing_data)
+
+# Get predictions
+predictions <- predict(model, newdata = preprocessed_test, type = "response")
+
+# Model evaluation
+results <- tibble(actual = testing_data[[outcome]], predicted = predictions)
+
+# Print the evaluation results
+print(results)
+
+
+```
+
